@@ -44,12 +44,10 @@ def check_auth(headers):
         return False
 
 
-def send_auth_challenge(handler, suppress_browser_popup=False):
-    """Send 401 response. If suppress_browser_popup, don't send WWW-Authenticate
-    header so browsers don't show the native auth popup (we use a custom login form)."""
+def send_auth_challenge(handler, suppress_browser_popup=True):
+    """Send 401 response as JSON. Never send WWW-Authenticate header
+    because we use a custom login form — the browser native popup is never wanted."""
     handler.send_response(401)
-    if not suppress_browser_popup:
-        handler.send_header('WWW-Authenticate', 'Basic realm="%s"' % AUTH_REALM)
     handler.send_header('Content-Type', 'application/json')
     handler.end_headers()
     handler.wfile.write(json.dumps({'error': 'Unauthorized'}).encode())
