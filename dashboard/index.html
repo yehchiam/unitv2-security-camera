@@ -436,7 +436,9 @@
   </div>
 </div>
 
-// ── Login ──────────────────────────────────────────────────────────────
+<script>
+const API = window.location.origin;
+// ── Login ────────────────────────────────────────────────────────────────────
 const loginOverlay = document.getElementById('login-overlay');
 const loginForm = document.getElementById('login-form');
 const loginErr = document.getElementById('login-err');
@@ -506,7 +508,6 @@ window.fetch = function(url, opts) {
 })();
 
 // ── App ────────────────────────────────────────────────────────────────
-const API = window.location.origin;
 let streamErrorCount = 0;
 
 function formatUptime(seconds) {
