@@ -136,6 +136,17 @@ def get_clips_via_ssh():
 
 
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
+    def end_headers(self):
+        # Auto-add CORS headers to all responses
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.end_headers()
+
     def do_GET(self):
         path = self.path.split('?')[0]
 
@@ -159,7 +170,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             clips = get_clips_via_ssh()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({"clips": clips}).encode())
         elif path.startswith('/clip/'):
@@ -205,7 +215,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 data = resp.read()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
             self.wfile.write(data)
@@ -213,7 +222,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             # Return degraded status instead of error when UnitV2 is down
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({"error": str(e), "motion_detected": False, "recording": False, "uptime": 0, "storage_mb": 0, "clips": 0, "offline": True}).encode())
 
@@ -225,7 +233,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 data = resp.read()
             self.send_response(200)
             self.send_header('Content-Type', 'text/csv')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.send_header('Cache-Control', 'no-cache')
             self.end_headers()
             self.wfile.write(data)
@@ -243,7 +250,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
             self.send_header('Cache-Control', 'no-cache')
-            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             try:
                 while True:
@@ -311,7 +317,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'video/mp4')
                 self.send_header('Content-Length', str(mp4_size))
                 self.send_header('Accept-Ranges', 'bytes')
-                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 with open(tmp_mp4, 'rb') as f:
                     while True:
@@ -325,7 +330,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-Type', 'video/x-msvideo')
                 self.send_header('Content-Length', str(len(result.stdout)))
-                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(result.stdout)
                 return
