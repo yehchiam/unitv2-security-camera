@@ -137,17 +137,19 @@ def get_clips_via_ssh():
 
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        if not check_auth(self.headers):
-            # For the HTML page, suppress browser native popup
-            suppress = self.path.split('?')[0] in ('/', '/index.html')
-            send_auth_challenge(self, suppress_browser_popup=suppress)
-            return
-
         path = self.path.split('?')[0]
 
+        # HTML page is always served (login form handles auth client-side)
         if path == '/' or path == '/index.html':
             self.serve_file('index.html', 'text/html')
-        elif path == '/status':
+            return
+
+        # All other endpoints require auth
+        if not check_auth(self.headers):
+            send_auth_challenge(self, suppress_browser_popup=False)
+            return
+
+        if path == '/status':
             self.proxy_json('/status')
         elif path == '/perf':
             self.proxy_text('/perf')
