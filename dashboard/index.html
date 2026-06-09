@@ -81,6 +81,24 @@
     transition: border-color 0.2s;
   }
   .login-field:focus { border-color: var(--accent); }
+  .login-remember {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 0.3rem;
+    margin-bottom: 0.3rem;
+  }
+  .login-check {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+  }
+  .login-remember label {
+    color: var(--text2);
+    font-size: 0.8rem;
+    cursor: pointer;
+    user-select: none;
+  }
   .login-btn {
     width: 100%;
     padding: 0.85rem 1.5rem;
@@ -363,6 +381,10 @@
     <form id="login-form" onsubmit="doLogin(event)">
       <input class="login-field" id="login-user" type="text" placeholder="Username" autocomplete="username" required>
       <input class="login-field" id="login-pass" type="password" placeholder="Password" autocomplete="current-password" required>
+      <div class="login-remember">
+        <input class="login-check" id="login-remember" type="checkbox" checked>
+        <label for="login-remember">Remember me</label>
+      </div>
       <button class="login-btn" type="submit">Enter</button>
     </form>
     <div class="login-err" id="login-err"></div>
@@ -443,33 +465,50 @@ const loginOverlay = document.getElementById('login-overlay');
 const loginForm = document.getElementById('login-form');
 const loginErr = document.getElementById('login-err');
 
+function getCreds() {
+  return localStorage.getItem('cam_creds') || sessionStorage.getItem('cam_creds');
+}
+
+function setCreds(creds, remember) {
+  if (remember) {
+    localStorage.setItem('cam_creds', creds);
+    sessionStorage.removeItem('cam_creds');
+  } else {
+    sessionStorage.setItem('cam_creds', creds);
+    localStorage.removeItem('cam_creds');
+  }
+}
+
+function clearCreds() {
+  localStorage.removeItem('cam_creds');
+  sessionStorage.removeItem('cam_creds');
+}
+
 function doLogin(e) {
   e.preventDefault();
   loginErr.textContent = '';
   const user = document.getElementById('login-user').value;
   const pass = document.getElementById('login-pass').value;
-  // Basic Auth: store credentials and try to fetch status
+  const remember = document.getElementById('login-remember').checked;
   const creds = btoa(user + ':' + pass);
-  localStorage.setItem('cam_creds', creds);
   fetch(API + '/status', {
     headers: { 'Authorization': 'Basic ' + creds }
   }).then(r => {
     if (r.status === 401) {
       loginErr.textContent = 'Wrong username or password';
-      localStorage.removeItem('cam_creds');
       return;
     }
     if (!r.ok) throw new Error('Server error');
+    setCreds(creds, remember);
     loginOverlay.style.display = 'none';
     init();
   }).catch(err => {
     loginErr.textContent = 'Could not connect to server';
-    localStorage.removeItem('cam_creds');
   });
 }
 
 function doLogout() {
-  localStorage.removeItem('cam_creds');
+  clearCreds();
   location.reload();
 }
 
@@ -478,7 +517,7 @@ const origFetch = window.fetch;
 window.fetch = function(url, opts) {
   opts = opts || {};
   opts.headers = opts.headers || {};
-  const creds = localStorage.getItem('cam_creds');
+  const creds = getCreds();
   if (creds) {
     if (opts.headers instanceof Headers) {
       opts.headers.set('Authorization', 'Basic ' + creds);
@@ -491,13 +530,17 @@ window.fetch = function(url, opts) {
 
 // Check if already logged in
 (function checkAuth() {
-  const creds = localStorage.getItem('cam_creds');
+  const creds = getCreds();
   if (!creds) return; // Show login form
+  // Pre-fill remember me checkbox based on where creds are stored
+  if (localStorage.getItem('cam_creds')) {
+    document.getElementById('login-remember').checked = true;
+  }
   fetch(API + '/status', {
     headers: { 'Authorization': 'Basic ' + creds }
   }).then(r => {
     if (r.status === 401) {
-      localStorage.removeItem('cam_creds');
+      clearCreds();
       return;
     }
     loginOverlay.style.display = 'none';
