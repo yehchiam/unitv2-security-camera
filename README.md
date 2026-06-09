@@ -2,6 +2,8 @@
 
 M5Stack UnitV2 security camera with motion detection, video recording, push alerts, and web dashboard.
 
+> 🤖 **Developed with [OpenClaw](https://github.com/openclaw/openclaw)** — an AI agent platform for building, deploying, and managing projects on edge devices.
+
 ## Architecture
 
 ```
