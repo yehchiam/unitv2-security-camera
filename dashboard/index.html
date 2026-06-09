@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>UnitV2 Security Camera</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #141414;
+    --surface2: #1e1e1e;
+    --border: #2a2a2a;
+    --text: #e0e0e0;
+    --text2: #888;
+    --accent: #ff4444;
+    --accent2: #ff8800;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --blue: #3b82f6;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-overflow-scrolling: touch;
+  }
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .status-dot.recording { background: var(--accent); animation: pulse 1.5s infinite; }
+  .status-dot.motion { background: var(--yellow); }
+  .status-dot.idle { background: var(--green); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .main { padding: 12px; max-width: 1200px; margin: 0 auto; }
+
+  /* Live Stream */
+  .live-section {
+    margin-bottom: 16px;
+    background: var(--surface);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .live-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .live-header span { font-size: 14px; font-weight: 500; }
+  .live-tag {
+    background: var(--accent);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    animation: pulse 1.5s infinite;
+  }
+  .stream-container {
+    position: relative;
+    background: #000;
+    aspect-ratio: 4/3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stream-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .stream-overlay {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .stream-overlay .rec {
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    animation: pulse 1.5s infinite;
+  }
+  .stream-info {
+    padding: 10px 14px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .info-item { display: flex; flex-direction: column; gap: 2px; }
+  .info-label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .info-value { font-size: 14px; font-weight: 600; }
+
+  /* Clips */
+  .clips-section {
+    background: var(--surface);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .clips-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .clips-header span { font-size: 14px; font-weight: 500; }
+  .clip-count { font-size: 12px; color: var(--text2); }
+
+  .clips-list {
+    max-height: 500px;
+    overflow-y: auto;
+  }
+  .clip-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+  .clip-item:hover { background: var(--surface2); }
+  .clip-item:last-child { border-bottom: none; }
+  .clip-icon {
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 18px;
+  }
+  .clip-info { flex: 1; min-width: 0; }
+  .clip-name { font-size: 13px; font-weight: 500; }
+  .clip-meta { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .clip-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .clip-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .clip-btn:hover { background: var(--border); }
+  .clip-btn.play { color: var(--blue); }
+  .clip-btn.delete { color: var(--accent); }
+  .clip-btn.delete:hover { background: rgba(255,68,68,0.2); }
+
+  .no-clips {
+    padding: 30px 14px;
+    text-align: center;
+    color: var(--text2);
+    font-size: 13px;
+  }
+
+  .refresh-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.15s;
+  }
+  .refresh-btn:hover { background: var(--border); }
+
+  /* Video Modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal-content {
+    width: 95%;
+    max-width: 800px;
+    background: var(--surface);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header span { font-size: 14px; font-weight: 500; }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text2);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-video {
+    width: 100%;
+    max-height: 70vh;
+    background: #000;
+  }
+  .modal-video video {
+    width: 100%;
+    max-height: 70vh;
+    display: block;
+  }
+
+  @media (max-width: 600px) {
+    .stream-info { grid-template-columns: repeat(2, 1fr); }
+    .clip-item { padding: 8px 10px; gap: 8px; }
+    .clip-btn { padding: 4px 8px; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="status-dot idle" id="statusDot"></div>
+  <h1>🎥 Security Camera</h1>
+</div>
+
+<div class="main">
+  <!-- Live Stream -->
+  <div class="live-section">
+    <div class="live-header">
+      <span>Live Feed</span>
+      <div class="live-tag">LIVE</div>
+    </div>
+    <div class="stream-container">
+      <img id="streamImg" src="/stream" alt="Live camera feed" onerror="handleStreamError()">
+      <div class="stream-overlay">
+        <div class="rec" id="recBadge" style="display:none">REC</div>
+      </div>
+    </div>
+    <div class="stream-info">
+      <div class="info-item">
+        <span class="info-label">Status</span>
+        <span class="info-value" id="statusText">—</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Uptime</span>
+        <span class="info-value" id="uptimeText">—</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Clips</span>
+        <span class="info-value" id="clipsText">—</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Storage</span>
+        <span class="info-value" id="storageText">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Clips -->
+  <div class="clips-section">
+    <div class="clips-header">
+      <span>Recorded Clips</span>
+      <button class="refresh-btn" onclick="loadClips()">↻ Refresh</button>
+    </div>
+    <div class="clips-list" id="clipsList">
+      <div class="no-clips">Loading clips...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Video Player Modal -->
+<div class="modal-overlay" id="videoModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <span id="modalTitle">Playback</span>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-video">
+      <video id="videoPlayer" controls autoplay playsinline></video>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.origin;
+let streamErrorCount = 0;
+
+function formatUptime(seconds) {
+  if (seconds < 60) return Math.floor(seconds) + 's';
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + Math.floor(seconds % 60) + 's';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return h + 'h ' + m + 'm';
+}
+
+function formatSize(mb) {
+  if (mb < 1) return (mb * 1024).toFixed(0) + ' KB';
+  if (mb < 1000) return mb.toFixed(1) + ' MB';
+  return (mb / 1000).toFixed(2) + ' GB';
+}
+
+function handleStreamError() {
+  streamErrorCount++;
+  if (streamErrorCount < 3) {
+    setTimeout(() => {
+      document.getElementById('streamImg').src = '/stream?t=' + Date.now();
+    }, 3000);
+  }
+}
+
+async function loadStatus() {
+  try {
+    const res = await fetch(API + '/status');
+    const data = await res.json();
+    const dot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const recBadge = document.getElementById('recBadge');
+
+    if (data.offline) {
+      dot.className = 'status-dot motion';
+      statusText.textContent = 'Camera Offline';
+      statusText.style.color = '#f44336';
+      recBadge.style.display = 'none';
+      document.getElementById('uptimeText').textContent = '--';
+      document.getElementById('clipsText').textContent = '--';
+      document.getElementById('storageText').textContent = '--';
+      return;
+    }
+    if (data.recording) {
+      dot.className = 'status-dot recording';
+      statusText.textContent = 'Recording';
+      statusText.style.color = 'var(--accent)';
+      recBadge.style.display = '';
+    } else if (data.motion_detected) {
+      dot.className = 'status-dot motion';
+      statusText.textContent = 'Motion';
+      statusText.style.color = 'var(--yellow)';
+      recBadge.style.display = 'none';
+    } else {
+      dot.className = 'status-dot idle';
+      statusText.textContent = 'Idle';
+      statusText.style.color = 'var(--green)';
+      recBadge.style.display = 'none';
+    }
+
+    document.getElementById('uptimeText').textContent = formatUptime(data.uptime);
+    document.getElementById('clipsText').textContent = data.clips;
+    document.getElementById('storageText').textContent = formatSize(data.storage_mb);
+    streamErrorCount = 0;
+  } catch (e) {
+    console.error('Status error:', e);
+  }
+}
+
+async function loadClips() {
+  try {
+    const res = await fetch(API + '/clips');
+    const data = await res.json();
+    const list = document.getElementById('clipsList');
+
+    if (!data.clips || data.clips.length === 0) {
+      list.innerHTML = '<div class="no-clips">No recorded clips yet</div>';
+      return;
+    }
+
+    list.innerHTML = data.clips.map(clip => {
+      return '<div class="clip-item" id="clip-' + clip.filename + '">' +
+        '<div class="clip-icon">🎬</div>' +
+        '<div class="clip-info">' +
+          '<div class="clip-name">' + clip.start + '</div>' +
+          '<div class="clip-meta">' + clip.duration + ' • ' + clip.size + '</div>' +
+        '</div>' +
+        '<div class="clip-actions">' +
+          '<button class="clip-btn play" onclick="playClip(\'' + clip.filename + '\', \'' + clip.start.replace(/'/g, "\\'") + '\')">▶ Play</button>' +
+          '<button class="clip-btn delete" onclick="deleteClip(\'' + clip.filename + '\')">✕ Delete</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (e) {
+    console.error('Clips error:', e);
+    document.getElementById('clipsList').innerHTML = '<div class="no-clips">Could not load clips</div>';
+  }
+}
+
+function playClip(filename, title) {
+  const videoUrl = API + '/clip/' + encodeURIComponent(filename);
+  const modal = document.getElementById('videoModal');
+  const player = document.getElementById('videoPlayer');
+  const modalTitle = document.getElementById('modalTitle');
+  
+  modalTitle.textContent = '▶ ' + title;
+  player.src = videoUrl;
+  modal.classList.add('active');
+  player.play().catch(() => {});
+}
+
+function closeModal() {
+  const modal = document.getElementById('videoModal');
+  const player = document.getElementById('videoPlayer');
+  player.pause();
+  player.src = '';
+  modal.classList.remove('active');
+}
+
+// Close modal on overlay click
+document.getElementById('videoModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// Close on Escape key
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+
+async function deleteClip(filename) {
+  if (!confirm('Delete this clip?')) return;
+  
+  const item = document.getElementById('clip-' + filename);
+  if (item) {
+    item.style.opacity = '0.5';
+    item.style.pointerEvents = 'none';
+  }
+
+  try {
+    const res = await fetch(API + '/delete/' + encodeURIComponent(filename), { method: 'DELETE' });
+    if (res.ok) {
+      if (item) item.remove();
+      // Check if list is now empty
+      const list = document.getElementById('clipsList');
+      if (!list.querySelector('.clip-item')) {
+        list.innerHTML = '<div class="no-clips">No recorded clips yet</div>';
+      }
+    } else {
+      alert('Failed to delete clip');
+      if (item) { item.style.opacity = '1'; item.style.pointerEvents = ''; }
+    }
+  } catch (e) {
+    alert('Error deleting clip: ' + e.message);
+    if (item) { item.style.opacity = '1'; item.style.pointerEvents = ''; }
+  }
+}
+
+// Refresh status every 5s, clips every 30s
+loadStatus();
+loadClips();
+setInterval(loadStatus, 5000);
+setInterval(loadClips, 30000);
+</script>
+</body>
+</html>
