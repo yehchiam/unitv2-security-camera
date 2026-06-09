@@ -44,13 +44,15 @@ def check_auth(headers):
         return False
 
 
-def send_auth_challenge(handler):
-    """Send 401 with Basic Auth challenge."""
+def send_auth_challenge(handler, suppress_browser_popup=False):
+    """Send 401 response. If suppress_browser_popup, don't send WWW-Authenticate
+    header so browsers don't show the native auth popup (we use a custom login form)."""
     handler.send_response(401)
-    handler.send_header('WWW-Authenticate', 'Basic realm="%s"' % AUTH_REALM)
-    handler.send_header('Content-Type', 'text/plain')
+    if not suppress_browser_popup:
+        handler.send_header('WWW-Authenticate', 'Basic realm="%s"' % AUTH_REALM)
+    handler.send_header('Content-Type', 'application/json')
     handler.end_headers()
-    handler.wfile.write(b'Unauthorized')
+    handler.wfile.write(json.dumps({'error': 'Unauthorized'}).encode())
 
 # ── UnitV2 Connection ───────────────────────────────────────────────────
 # Set these via env vars or edit below for your setup
@@ -136,7 +138,9 @@ def get_clips_via_ssh():
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if not check_auth(self.headers):
-            send_auth_challenge(self)
+            # For the HTML page, suppress browser native popup
+            suppress = self.path.split('?')[0] in ('/', '/index.html')
+            send_auth_challenge(self, suppress_browser_popup=suppress)
             return
 
         path = self.path.split('?')[0]

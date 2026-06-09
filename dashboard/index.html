@@ -26,6 +26,90 @@
     min-height: 100vh;
     -webkit-overflow-scrolling: touch;
   }
+
+  /* ── Login Screen ────────────────────────────────────────────── */
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    background: radial-gradient(ellipse at 50% 20%, #1a1a2e 0%, var(--bg) 70%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 1.5rem;
+    animation: fadeIn 0.3s ease-out;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  .login-card {
+    background: var(--surface);
+    border-radius: 20px;
+    padding: 2rem;
+    width: 100%;
+    max-width: 360px;
+    border: 1px solid var(--border);
+    animation: fadeIn 0.4s ease-out;
+  }
+  .login-icon {
+    text-align: center;
+    font-size: 2.5rem;
+    margin-bottom: 0.2rem;
+  }
+  .login-title {
+    text-align: center;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+  }
+  .login-sub {
+    text-align: center;
+    color: var(--text2);
+    font-size: 0.85rem;
+    margin-bottom: 1.8rem;
+  }
+  .login-field {
+    width: 100%;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.7rem;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .login-field:focus { border-color: var(--accent); }
+  .login-btn {
+    width: 100%;
+    padding: 0.85rem 1.5rem;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 700;
+    background: var(--accent);
+    color: #111;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.15s, background 0.2s;
+    margin-top: 0.3rem;
+  }
+  .login-btn:hover { opacity: 0.9; }
+  .login-btn:active { transform: scale(0.97); }
+  .login-err {
+    color: var(--accent);
+    font-size: 0.85rem;
+    text-align: center;
+    margin-top: 0.5rem;
+    min-height: 1.2em;
+  }
+  .login-footer {
+    text-align: center;
+    padding-top: 1.5rem;
+    font-size: 0.7rem;
+    color: var(--text2);
+    line-height: 1.6;
+  }
   .header {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
@@ -202,6 +286,18 @@
   }
   .refresh-btn:hover { background: var(--border); }
 
+  .logout-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text2);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .logout-btn:hover { background: var(--border); color: var(--text); }
+
   /* Video Modal */
   .modal-overlay {
     display: none;
@@ -257,9 +353,29 @@
 </style>
 </head>
 <body>
-<div class="header">
+
+<!-- Login Screen -->
+<div id="login-overlay" class="login-overlay">
+  <div class="login-card">
+    <div class="login-icon">📹</div>
+    <div class="login-title">Security Camera</div>
+    <div class="login-sub">UnitV2 Dashboard</div>
+    <form id="login-form" onsubmit="doLogin(event)">
+      <input class="login-field" id="login-user" type="text" placeholder="Username" autocomplete="username" required>
+      <input class="login-field" id="login-pass" type="password" placeholder="Password" autocomplete="current-password" required>
+      <button class="login-btn" type="submit">Enter</button>
+    </form>
+    <div class="login-err" id="login-err"></div>
+    <div class="login-footer">
+      UnitV2 Security Camera · <b style="color:var(--text)">Chiam</b> + <b style="color:var(--accent)">LobsterPie</b>
+    </div>
+  </div>
+</div>
+
+  <div class="header">
   <div class="status-dot idle" id="statusDot"></div>
   <h1>🎥 Security Camera</h1>
+  <div style="margin-left:auto"><button class="logout-btn" onclick="doLogout()">Logout</button></div>
 </div>
 
 <div class="main">
@@ -320,7 +436,76 @@
   </div>
 </div>
 
-<script>
+// ── Login ──────────────────────────────────────────────────────────────
+const loginOverlay = document.getElementById('login-overlay');
+const loginForm = document.getElementById('login-form');
+const loginErr = document.getElementById('login-err');
+
+function doLogin(e) {
+  e.preventDefault();
+  loginErr.textContent = '';
+  const user = document.getElementById('login-user').value;
+  const pass = document.getElementById('login-pass').value;
+  // Basic Auth: store credentials and try to fetch status
+  const creds = btoa(user + ':' + pass);
+  localStorage.setItem('cam_creds', creds);
+  fetch(API + '/status', {
+    headers: { 'Authorization': 'Basic ' + creds }
+  }).then(r => {
+    if (r.status === 401) {
+      loginErr.textContent = 'Wrong username or password';
+      localStorage.removeItem('cam_creds');
+      return;
+    }
+    if (!r.ok) throw new Error('Server error');
+    loginOverlay.style.display = 'none';
+    init();
+  }).catch(err => {
+    loginErr.textContent = 'Could not connect to server';
+    localStorage.removeItem('cam_creds');
+  });
+}
+
+function doLogout() {
+  localStorage.removeItem('cam_creds');
+  location.reload();
+}
+
+// Override fetch to always include auth
+const origFetch = window.fetch;
+window.fetch = function(url, opts) {
+  opts = opts || {};
+  opts.headers = opts.headers || {};
+  const creds = localStorage.getItem('cam_creds');
+  if (creds) {
+    if (opts.headers instanceof Headers) {
+      opts.headers.set('Authorization', 'Basic ' + creds);
+    } else {
+      opts.headers['Authorization'] = 'Basic ' + creds;
+    }
+  }
+  return origFetch(url, opts);
+};
+
+// Check if already logged in
+(function checkAuth() {
+  const creds = localStorage.getItem('cam_creds');
+  if (!creds) return; // Show login form
+  fetch(API + '/status', {
+    headers: { 'Authorization': 'Basic ' + creds }
+  }).then(r => {
+    if (r.status === 401) {
+      localStorage.removeItem('cam_creds');
+      return;
+    }
+    loginOverlay.style.display = 'none';
+    init();
+  }).catch(() => {
+    // Keep login form visible
+  });
+})();
+
+// ── App ────────────────────────────────────────────────────────────────
 const API = window.location.origin;
 let streamErrorCount = 0;
 
