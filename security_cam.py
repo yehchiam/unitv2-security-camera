@@ -130,6 +130,35 @@ def check_wifi():
         log_to_file("WiFi check error: %s" % e)
 
 
+def check_sd_readonly():
+    """Check if SD card went read-only (FAT corruption). Try to remount rw."""
+    try:
+        test_file = os.path.join(SD_CARD, '.write_test')
+        with open(test_file, 'w') as f:
+            f.write('ok')
+            os.remove(test_file)
+        return False  # writable
+    except OSError:
+        log_to_file("SD card is READ-ONLY! Attempting remount...")
+        os.system('umount /mnt/sd 2>/dev/null')
+        time.sleep(1)
+        result = os.system('mount -t vfat -o rw /dev/mmcblk0p1 /mnt/sd 2>/dev/null')
+        if result == 0:
+            # Test write again
+            try:
+                with open(test_file, 'w') as f:
+                    f.write('ok')
+                    os.remove(test_file)
+                log_to_file("SD card remounted rw successfully")
+                return False
+            except OSError:
+                log_to_file("SD card STILL read-only after remount!")
+                return True
+        else:
+            log_to_file("SD card remount FAILED")
+            return True
+
+
 def check_oom():
     """Check for critical memory pressure. Reboot if too low."""
     avail = get_available_mem_kb()
@@ -482,6 +511,22 @@ class StreamHandler(http.server.BaseHTTPRequestHandler):
                     disk_total = round(stat.f_blocks * stat.f_bsize / 1024 / 1024 / 1024, 1)
                     disk_used = round((stat.f_blocks - stat.f_bfree) * stat.f_bsize / 1024 / 1024 / 1024, 1)
                 except: pass
+                # Check if SD card is read-only (corruption protection)
+                sd_readonly = False
+                try:
+                    test_file = os.path.join(SD_CARD, '.write_test')
+                    with open(test_file, 'w') as f:
+                        f.write('ok')
+                        os.remove(test_file)
+                except OSError:
+                    sd_readonly = True
+                # CPU temperature (SigmaStar SSD202D)
+                cpu_temp = None
+                try:
+                    temp_raw = open('/sys/devices/system/cpu/cpufreq/temp_out').read().strip()
+                    # Parse "Temp=71" format
+                    cpu_temp = int(temp_raw.replace('Temp=', ''))
+                except: pass
                 # Include heartbeat timestamp for Pi-side monitoring
                 status = {
                     "motion_detected": motion_detected,
@@ -492,11 +537,13 @@ class StreamHandler(http.server.BaseHTTPRequestHandler):
                     "cpu": "ARMv7 (SigmaStar SSD202D)",
                     "cpu_cores": 2,
                     "cpu_usage": cpu_usage,
+                    "cpu_temp_c": cpu_temp,
                     "mem_total_mb": mem_total,
                     "mem_used_mb": mem_used,
                     "mem_avail_kb": get_available_mem_kb(),
                     "disk_total_gb": disk_total,
                     "disk_used_gb": disk_used,
+                    "sd_readonly": sd_readonly,
                     "heartbeat_ts": datetime.now().isoformat(),
                     "pid": os.getpid(),
                 }
@@ -674,6 +721,9 @@ def main():
         if now - last_wifi_check >= WIFI_CHECK_INTERVAL:
             check_wifi()
             last_wifi_check = now
+
+        # Check SD card isn't read-only
+        check_sd_readonly()
 
         # Check memory pressure
         check_oom()

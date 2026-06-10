@@ -430,6 +430,14 @@
         <span class="info-label">Storage</span>
         <span class="info-value" id="storageText">—</span>
       </div>
+      <div class="info-item">
+        <span class="info-label">CPU</span>
+        <span class="info-value" id="cpuText">—</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Temp</span>
+        <span class="info-value" id="tempText">—</span>
+      </div>
     </div>
   </div>
 
@@ -614,6 +622,17 @@ async function loadStatus() {
     document.getElementById('uptimeText').textContent = formatUptime(data.uptime);
     document.getElementById('clipsText').textContent = data.clips;
     document.getElementById('storageText').textContent = formatSize(data.storage_mb);
+    document.getElementById('cpuText').textContent = (data.cpu_usage || 0) + '%';
+    const temp = data.cpu_temp_c;
+    const tempEl = document.getElementById('tempText');
+    if (temp != null) {
+      tempEl.textContent = temp + '°C';
+      tempEl.style.color = temp > 70 ? 'var(--yellow)' : temp > 80 ? '#f44336' : 'var(--green)';
+    }
+    if (data.sd_readonly) {
+      statusText.textContent = 'SD READ-ONLY';
+      statusText.style.color = '#f44336';
+    }
     streamErrorCount = 0;
   } catch (e) {
     console.error('Status error:', e);
