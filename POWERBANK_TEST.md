@@ -7,4 +7,4 @@
 ## Tracking Data
 | Time (MYT) | Uptime (s) | CPU% | Temp (°C) | Mem Used (MB) | Clips | Storage (MB) | SD Read-only | Notes |
 |---|---|---|---|---|---|---|---|---|
-| 18:50 | 300 | 33 | 72 | 50 | 1 | 5 | No | Test started, power bank fully charged |
+| 19:08 | 82 | 20 | 75 | 50 | 0 | 0 | No | FPS 3, JPEG 50, detect skip 3, MOG2 history 200 |
