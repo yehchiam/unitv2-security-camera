@@ -111,21 +111,21 @@ def write_heartbeat():
 
 
 def check_wifi():
-    """Check WiFi connectivity. In AP mode, we ARE the network."""
+    """Check WiFi connectivity and attempt reconnect if down."""
     try:
-        # In AP mode: check that our own WLAN interface is up
-        # and we can reach the internet (via connected client bridge)
-        # Also check that dnsmasq/hostapd are running
-        hostapd_running = os.system('pidof hostapd > /dev/null 2>&1') == 0
-        dnsmasq_running = os.system('pidof dnsmasq > /dev/null 2>&1') == 0
-        if not hostapd_running or not dnsmasq_running:
-            log_to_file("AP services down: hostapd=%s dnsmasq=%s, restarting..." % (hostapd_running, dnsmasq_running))
-            os.system('/etc/init.d/S80dnsmasq restart 2>/dev/null')
-            os.system('/etc/init.d/S80hostapd restart 2>/dev/null')
-            time.sleep(2)
-            log_to_file("AP services restarted")
+        result = os.system('ping -c 1 -W 3 192.168.100.1 > /dev/null 2>&1')
+        if result != 0:
+            log_to_file("WiFi check failed, reconnecting...")
+            # Restart wpa_supplicant
+            os.system('/etc/init.d/S90wifi-conf restart 2>/dev/null')
+            time.sleep(5)
+            result2 = os.system('ping -c 1 -W 3 192.168.100.1 > /dev/null 2>&1')
+            if result2 != 0:
+                log_to_file("WiFi reconnect FAILED")
+            else:
+                log_to_file("WiFi reconnect OK")
         else:
-            log_to_file("AP services OK")
+            log_to_file("WiFi check OK")
     except Exception as e:
         log_to_file("WiFi check error: %s" % e)
 
@@ -545,8 +545,7 @@ def main():
     # Wait for network connectivity
     print("[cam] Waiting for network...")
     for i in range(60):
-        # In AP mode, just check our own interface is up
-        if os.system('ip addr show wlan0 > /dev/null 2>&1') == 0:
+        if os.system('ping -c 1 -W 2 192.168.100.1 > /dev/null 2>&1') == 0:
             print("[cam] Network ready (gateway reachable)")
             log_to_file("Network ready after %ds" % (i + 1))
             break
