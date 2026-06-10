@@ -35,7 +35,7 @@ sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
 sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
 
 # ── Config ──────────────────────────────────────────────
-SD_CARD = "/mnt/sdcard"
+SD_CARD = "/mnt/sd"
 CLIPS_DIR = os.path.join(SD_CARD, "clips")
 LOG_FILE = os.path.join(SD_CARD, "camera.log")  # persistent crash log
 HEARTBEAT_FILE = os.path.join(SD_CARD, "heartbeat.json")  # for Pi watchdog
@@ -50,7 +50,7 @@ MAX_STORAGE_MB = 110000   # leave ~9GB free on 119GB card
 STREAM_PORT = 8080        # MJPEG stream port
 STREAM_FPS = 5            # MJPEG stream FPS (lower = less RAM/bandwidth)
 STREAM_TIMEOUT = 300       # Max seconds a client can stream before disconnect
-NTFY_URL = os.environ.get("NTFY_URL", "https://ntfy.sh/YOUR_NTFY_TOPIC")
+NTFY_URL = os.environ.get("NTFY_URL", "https://ntfy.sh/hensem-camera")
 JPEG_QUALITY = 60         # JPEG quality for stream (reduced from 70 for less memory)
 MIN_CONTOUR_AREA = 500    # min pixel area to count as motion
 MOTION_THRESHOLD = 25     # pixel diff threshold
@@ -111,23 +111,21 @@ def write_heartbeat():
 
 
 def check_wifi():
-    """Check WiFi connectivity and attempt reconnect if down."""
+    """Check WiFi connectivity. In AP mode, we ARE the network."""
     try:
-        # Ping the router (gateway) to check WiFi
-        result = os.system('ping -c 1 -W 3 192.168.100.1 > /dev/null 2>&1')
-        if result != 0:
-            log_to_file("WiFi check failed, reconnecting...")
-            # Try to reconnect WiFi
-            os.system('wlarm_hci attach || true')
-            os.system('ifconfig wlan0 down 2>/dev/null; sleep 1; ifconfig wlan0 up 2>/dev/null')
-            os.system('udhcpc -i wlan0 -q 2>/dev/null')
+        # In AP mode: check that our own WLAN interface is up
+        # and we can reach the internet (via connected client bridge)
+        # Also check that dnsmasq/hostapd are running
+        hostapd_running = os.system('pidof hostapd > /dev/null 2>&1') == 0
+        dnsmasq_running = os.system('pidof dnsmasq > /dev/null 2>&1') == 0
+        if not hostapd_running or not dnsmasq_running:
+            log_to_file("AP services down: hostapd=%s dnsmasq=%s, restarting..." % (hostapd_running, dnsmasq_running))
+            os.system('/etc/init.d/S80dnsmasq restart 2>/dev/null')
+            os.system('/etc/init.d/S80hostapd restart 2>/dev/null')
             time.sleep(2)
-            # Verify
-            result2 = os.system('ping -c 1 -W 3 192.168.100.1 > /dev/null 2>&1')
-            if result2 != 0:
-                log_to_file("WiFi reconnect FAILED")
-            else:
-                log_to_file("WiFi reconnect OK")
+            log_to_file("AP services restarted")
+        else:
+            log_to_file("AP services OK")
     except Exception as e:
         log_to_file("WiFi check error: %s" % e)
 
@@ -480,7 +478,7 @@ class StreamHandler(http.server.BaseHTTPRequestHandler):
                 except: pass
                 disk_total = disk_used = 0
                 try:
-                    stat = os.statvfs('/mnt/sdcard')
+                    stat = os.statvfs(SD_CARD)
                     disk_total = round(stat.f_blocks * stat.f_bsize / 1024 / 1024 / 1024, 1)
                     disk_used = round((stat.f_blocks - stat.f_bfree) * stat.f_bsize / 1024 / 1024 / 1024, 1)
                 except: pass
@@ -547,7 +545,8 @@ def main():
     # Wait for network connectivity
     print("[cam] Waiting for network...")
     for i in range(60):
-        if os.system('ping -c 1 -W 2 192.168.100.1 > /dev/null 2>&1') == 0:
+        # In AP mode, just check our own interface is up
+        if os.system('ip addr show wlan0 > /dev/null 2>&1') == 0:
             print("[cam] Network ready (gateway reachable)")
             log_to_file("Network ready after %ds" % (i + 1))
             break
@@ -606,17 +605,18 @@ def main():
     # Start MJPEG stream server
     stream_thread = threading.Thread(target=start_stream_server, daemon=True)
     stream_thread.start()
+    _stream_thread_ref = [stream_thread]  # mutable container for watchdog
 
     # Watchdog: restart HTTP server if it dies
     def stream_watchdog():
         while True:
             time.sleep(30)
-            if not stream_thread.is_alive():
+            if not _stream_thread_ref[0].is_alive():
                 print("[cam] HTTP server died, restarting...")
                 log_to_file("HTTP server died, restarting")
                 new_thread = threading.Thread(target=start_stream_server, daemon=True)
                 new_thread.start()
-                stream_thread = new_thread
+                _stream_thread_ref[0] = new_thread
     watchdog_thread = threading.Thread(target=stream_watchdog, daemon=True)
     watchdog_thread.start()
 
