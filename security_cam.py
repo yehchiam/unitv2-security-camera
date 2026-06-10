@@ -760,31 +760,21 @@ def main():
                 print("[cam] MOTION DETECTED at %s" % datetime.now().strftime("%H:%M:%S"))
                 # Send alert (max once per 1 min)
                 if now - alert_sent_time > 60:
-                    with frame_lock:
-                        frame_for_notify = latest_frame
-                    if frame_for_notify:
-                        avail = get_available_mem_kb()
-                        if avail < LOW_MEM_KB:
-                            print("[cam] Low memory (%d KB), skipping snapshot" % avail)
-                            threading.Thread(
-                                target=send_ntfy,
-                                args=("Motion detected! Recording started.",),
-                                kwargs={"priority": "high", "tags": "warning,rotating_light", "click_url": "https://camera.hensem.xyz"},
-                                daemon=True
-                            ).start()
+                    # Delay snapshot by 1.5s to catch the actual person
+                    def delayed_snapshot():
+                        time.sleep(1.5)
+                        with frame_lock:
+                            snap_frame = latest_frame
+                        if snap_frame:
+                            avail = get_available_mem_kb()
+                            if avail < LOW_MEM_KB:
+                                print("[cam] Low memory (%d KB), skipping snapshot" % avail)
+                                send_ntfy("Motion detected! Recording started.", priority="high", tags="warning,rotating_light", click_url="https://camera.hensem.xyz")
+                            else:
+                                send_ntfy_with_frame("Motion detected! Tap to view.", snap_frame)
                         else:
-                            threading.Thread(
-                                target=send_ntfy_with_frame,
-                                args=("Motion detected! Tap to view.", frame_for_notify),
-                                daemon=True
-                            ).start()
-                    else:
-                        threading.Thread(
-                            target=send_ntfy,
-                            args=("Motion detected! Recording started.",),
-                            kwargs={"priority": "high", "tags": "warning,rotating_light", "click_url": "https://camera.hensem.xyz"},
-                            daemon=True
-                        ).start()
+                            send_ntfy("Motion detected! Recording started.", priority="high", tags="warning,rotating_light", click_url="https://camera.hensem.xyz")
+                    threading.Thread(target=delayed_snapshot, daemon=True).start()
                     alert_sent_time = now
 
             if not recording:
