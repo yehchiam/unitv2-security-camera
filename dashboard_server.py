@@ -153,22 +153,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.serve_file('index.html', 'text/html')
             return
 
-        # Stream endpoint: allow unauthenticated access for <img> tag compatibility
-        # The stream is just a live camera feed, not sensitive data.
-        # Alternatively, support ?token=base64creds for authenticated access.
+        # Stream endpoint: public access (no auth needed for <img> tag)
+        # The stream is a live camera feed only. Sensitive endpoints (clips, delete, etc.) require auth.
         if path == '/stream':
-            # Check for token-based auth first
-            token = self.path.split('token=', 1)[-1].split('&')[0] if 'token=' in self.path else None
-            if token:
-                try:
-                    decoded = base64.b64decode(token).decode('utf-8', errors='ignore')
-                    incoming_hash = hashlib.sha256(decoded.encode()).hexdigest()
-                    if incoming_hash != _CRED_HASH:
-                        send_auth_challenge(self)
-                        return
-                except Exception:
-                    send_auth_challenge(self)
-                    return
             self.proxy_stream('/stream')
             return
 
@@ -181,8 +168,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.proxy_json('/status')
         elif path == '/perf':
             self.proxy_text('/perf')
-        elif path == '/stream':
-            self.proxy_stream('/stream')
         elif path == '/clips':
             clips = get_clips_via_ssh()
             self.send_response(200)
