@@ -50,7 +50,7 @@ MAX_STORAGE_MB = 110000   # leave ~9GB free on 119GB card
 STREAM_PORT = 8080        # MJPEG stream port
 STREAM_FPS = 3            # MJPEG stream FPS (reduced from 5 for lower CPU)
 STREAM_TIMEOUT = 300       # Max seconds a client can stream before disconnect
-NTFY_URL = os.environ.get("NTFY_URL", "https://ntfy.sh/hensem-camera")
+NTFY_URL = os.environ.get("NTFY_URL", "https://ntfy.sh/camera-aac2619e80df")
 JPEG_QUALITY = 50         # JPEG quality for stream (reduced from 60 for less CPU)
 MIN_CONTOUR_AREA = 800    # min pixel area to count as motion (higher = less false positives)
 MOTION_THRESHOLD = 30     # pixel diff threshold (higher = less sensitive, less CPU)
