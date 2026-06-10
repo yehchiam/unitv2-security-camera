@@ -762,7 +762,7 @@ def main():
                 if now - alert_sent_time > 60:
                     # Delay snapshot by 1.5s to catch the actual person
                     def delayed_snapshot():
-                        time.sleep(1.5)
+                        time.sleep(3)
                         with frame_lock:
                             snap_frame = latest_frame
                         if snap_frame:

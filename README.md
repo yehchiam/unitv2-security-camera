@@ -188,7 +188,7 @@ In `security_cam.py`:
 | `MAX_STORAGE_MB` | 110000 | Storage limit before auto-cleanup |
 | `STREAM_PORT` | 8080 | MJPEG stream port |
 | `STREAM_FPS` | 3 | Stream FPS (lower = less CPU/bandwidth) |
-| `SNAPSHOT_DELAY` | 1.5s | Delay before snapshot grab (catches person, not trigger) |
+| `| `SNAPSHOT_DELAY` | 3s | | Delay before snapshot grab (catches person, not trigger) |
 
 ## Security Notes
 
