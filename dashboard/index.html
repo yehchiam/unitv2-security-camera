@@ -674,11 +674,27 @@ function playClip(filename, title) {
   const modal = document.getElementById('videoModal');
   const player = document.getElementById('videoPlayer');
   const modalTitle = document.getElementById('modalTitle');
-  
-  modalTitle.textContent = '▶ ' + title;
-  player.src = videoUrl;
+  const loadingEl = document.getElementById('clipsList');
+
+  modalTitle.textContent = '⏳ Loading...';
   modal.classList.add('active');
-  player.play().catch(() => {});
+
+  // Fetch video with auth header (video tag can't send auth)
+  fetch(videoUrl, { headers: { 'Authorization': 'Basic ' + getCreds() } })
+    .then(r => {
+      if (!r.ok) throw new Error('Failed to load clip (HTTP ' + r.status + ')');
+      return r.blob();
+    })
+    .then(blob => {
+      const blobUrl = URL.createObjectURL(blob);
+      player.src = blobUrl;
+      modalTitle.textContent = '▶ ' + title;
+      player.play().catch(() => {});
+    })
+    .catch(err => {
+      modalTitle.textContent = '❌ ' + err.message;
+      player.src = '';
+    });
 }
 
 function closeModal() {
@@ -718,7 +734,8 @@ async function deleteClip(filename) {
         list.innerHTML = '<div class="no-clips">No recorded clips yet</div>';
       }
     } else {
-      alert('Failed to delete clip');
+      const errText = await res.text().catch(() => '');
+      alert('Failed to delete clip: ' + (res.status || errText));
       if (item) { item.style.opacity = '1'; item.style.pointerEvents = ''; }
     }
   } catch (e) {

@@ -48,14 +48,14 @@ DETECT_W = 160            # motion detection width (smaller = faster)
 DETECT_H = 120            # motion detection height
 MAX_STORAGE_MB = 110000   # leave ~9GB free on 119GB card
 STREAM_PORT = 8080        # MJPEG stream port
-STREAM_FPS = 5            # MJPEG stream FPS (lower = less RAM/bandwidth)
+STREAM_FPS = 3            # MJPEG stream FPS (reduced from 5 for lower CPU)
 STREAM_TIMEOUT = 300       # Max seconds a client can stream before disconnect
 NTFY_URL = os.environ.get("NTFY_URL", "https://ntfy.sh/hensem-camera")
-JPEG_QUALITY = 60         # JPEG quality for stream (reduced from 70 for less memory)
-MIN_CONTOUR_AREA = 500    # min pixel area to count as motion
-MOTION_THRESHOLD = 25     # pixel diff threshold
+JPEG_QUALITY = 50         # JPEG quality for stream (reduced from 60 for less CPU)
+MIN_CONTOUR_AREA = 800    # min pixel area to count as motion (higher = less false positives)
+MOTION_THRESHOLD = 30     # pixel diff threshold (higher = less sensitive, less CPU)
 RECORD_CODEC = "MJPG"     # MJPEG for reliable OpenCV recording
-DETECT_SKIP = 2           # process every Nth frame for detection
+DETECT_SKIP = 3           # process every 3rd frame for detection (was 2, reduces CPU)
 LOW_MEM_KB = 10240        # Skip snapshot if less than this many KB available
 CRIT_MEM_KB = 5120        # Reboot if less than this many KB available
 HEARTBEAT_INTERVAL = 30   # write heartbeat file every 30s
@@ -673,7 +673,7 @@ def main():
 
     # Background subtractor for motion detection
     bgsub = cv2.createBackgroundSubtractorMOG2(
-        history=300, varThreshold=MOTION_THRESHOLD, detectShadows=False
+        history=200, varThreshold=MOTION_THRESHOLD, detectShadows=False  # history 300→200
     )
 
     # Pre-allocate kernel for morphology (reuse every frame)

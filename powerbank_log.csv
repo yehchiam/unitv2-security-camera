@@ -1,2 +1,5 @@
 timestamp,uptime_s,cpu_pct,cpu_temp_c,mem_used_mb,clips,storage_mb,sd_readonly,motion,recording
 2026-06-10 18:50:38,197,34.7,77,50,1,5.2,False,False,False
+2026-06-10 18:55:01,460,31.3,77,50,0,0.1,False,False,False
+2026-06-10 19:00:02,760,35.9,79,51,2,10.5,False,False,False
+2026-06-10 19:05:01,1060,22.6,77,51,3,13.0,False,True,True
