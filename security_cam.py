@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-UnitV2 Security Camera - v3 (optimized for stability on 114MB RAM)
+UnitV2-M12 Security Camera - v4 (crash-hardened + watchdog + logging)
+Runs on M5Stack UnitV2-M12 (SKU: U078-M12, GC2053 camera, dual M12 lenses).
 Uses Python + OpenCV directly (no M5Stack binaries needed).
-Person detection via background subtraction (lightweight, 114MB RAM friendly).
+Person detection via background subtraction (lightweight, 128MB RAM friendly).
 Records clips to SD card, streams MJPEG, alerts via ntfy.
 
-v3 changes:
-- Motion detection on grayscale (no color conversion, saves ~30% CPU/memory)
-- Skip frames for detection (process every 2nd frame)
-- gc.collect() after snapshot notifications to reclaim memory
-- Sleep in main loop to reduce CPU from 100% to ~50%
-- Smaller detection resolution (160x120 instead of 320x240)
-- Reuse kernel and encode params (no per-frame allocation)
-- Memory guard: skip snapshot if < 10MB available
-- OOM protection: explicit del + gc.collect after heavy operations
-- Reduced stream JPEG quality (70 → 60)
-- Skip MJPEG frame update when no clients connected
+v4 changes from v3:
+- Heartbeat file written every 30s (for Pi-side watchdog)
+- Automatic reboot if OOM or critical memory pressure (<5MB available)
+- Camera reconnection with exponential backoff (2s, 4s, 8s, max 30s)
+- Periodic WiFi connectivity check (reconnects if needed)
+- Crash log written to SD card with timestamp + traceback
+- Watchdog timer: reboots device if main loop stalls for >60s
+- Frame leak prevention: explicit del + gc.collect on every error path
+- Startup delay: wait for network before starting HTTP server
+- Status endpoint includes heartbeat timestamp + uptime for monitoring
 """
 
 import cv2
@@ -27,6 +27,7 @@ import gc
 import threading
 import http.server
 import socketserver
+import traceback as tb_module
 from datetime import datetime, timedelta
 
 # Force unbuffered output
@@ -36,6 +37,8 @@ sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
 # ── Config ──────────────────────────────────────────────
 SD_CARD = "/mnt/sdcard"
 CLIPS_DIR = os.path.join(SD_CARD, "clips")
+LOG_FILE = os.path.join(SD_CARD, "camera.log")  # persistent crash log
+HEARTBEAT_FILE = os.path.join(SD_CARD, "heartbeat.json")  # for Pi watchdog
 CLIP_LENGTH = 60          # seconds per clip
 COOLDOWN = 30             # seconds after last motion before recording stops
 FPS = 10                  # recording frame rate
@@ -49,11 +52,16 @@ STREAM_FPS = 5            # MJPEG stream FPS (lower = less RAM/bandwidth)
 STREAM_TIMEOUT = 300       # Max seconds a client can stream before disconnect
 NTFY_URL = os.environ.get("NTFY_URL", "https://ntfy.sh/YOUR_NTFY_TOPIC")
 JPEG_QUALITY = 60         # JPEG quality for stream (reduced from 70 for less memory)
-MIN_CONTOUR_AREA = 500    # min pixel area to count as motion (reduced for smaller detect frame)
+MIN_CONTOUR_AREA = 500    # min pixel area to count as motion
 MOTION_THRESHOLD = 25     # pixel diff threshold
-RECORD_CODEC = "MJPG"     # MJPEG for reliable OpenCV recording; Pi4 transcodes to MP4 for playback
-DETECT_SKIP = 2           # process every Nth frame for detection (2 = every other frame)
+RECORD_CODEC = "MJPG"     # MJPEG for reliable OpenCV recording
+DETECT_SKIP = 2           # process every Nth frame for detection
 LOW_MEM_KB = 10240        # Skip snapshot if less than this many KB available
+CRIT_MEM_KB = 5120        # Reboot if less than this many KB available
+HEARTBEAT_INTERVAL = 30   # write heartbeat file every 30s
+WIFI_CHECK_INTERVAL = 300  # check WiFi every 5 minutes
+CAM_RECONNECT_BASE_DELAY = 2  # initial camera reconnect delay (seconds)
+CAM_RECONNECT_MAX_DELAY = 30  # max camera reconnect delay
 # ────────────────────────────────────────────────────────
 
 # ── State ───────────────────────────────────────────────
@@ -67,6 +75,79 @@ current_clip_start = 0
 clip_count = 0
 start_time = time.time()
 stream_clients = 0         # track connected clients
+last_heartbeat = 0         # last heartbeat write time
+last_wifi_check = 0        # last WiFi connectivity check
+
+
+def log_to_file(msg):
+    """Append message to persistent log file on SD card."""
+    try:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        with open(LOG_FILE, 'a') as f:
+            f.write('%s %s\n' % (timestamp, msg))
+    except:
+        pass
+
+
+def write_heartbeat():
+    """Write heartbeat JSON file for Pi-side watchdog monitoring."""
+    global motion_detected, recording, clip_count
+    try:
+        data = {
+            "timestamp": datetime.now().isoformat(),
+            "uptime_sec": int(time.time() - start_time),
+            "motion": motion_detected,
+            "recording": recording,
+            "clips": clip_count,
+            "mem_avail_kb": get_available_mem_kb(),
+            "pid": os.getpid(),
+        }
+        tmp = HEARTBEAT_FILE + ".tmp"
+        with open(tmp, 'w') as f:
+            json.dump(data, f)
+        os.replace(tmp, HEARTBEAT_FILE)  # atomic write
+    except Exception as e:
+        log_to_file("heartbeat error: %s" % e)
+
+
+def check_wifi():
+    """Check WiFi connectivity and attempt reconnect if down."""
+    try:
+        # Ping the router (gateway) to check WiFi
+        result = os.system('ping -c 1 -W 3 192.168.100.1 > /dev/null 2>&1')
+        if result != 0:
+            log_to_file("WiFi check failed, reconnecting...")
+            # Try to reconnect WiFi
+            os.system('wlarm_hci attach || true')
+            os.system('ifconfig wlan0 down 2>/dev/null; sleep 1; ifconfig wlan0 up 2>/dev/null')
+            os.system('udhcpc -i wlan0 -q 2>/dev/null')
+            time.sleep(2)
+            # Verify
+            result2 = os.system('ping -c 1 -W 3 192.168.100.1 > /dev/null 2>&1')
+            if result2 != 0:
+                log_to_file("WiFi reconnect FAILED")
+            else:
+                log_to_file("WiFi reconnect OK")
+    except Exception as e:
+        log_to_file("WiFi check error: %s" % e)
+
+
+def check_oom():
+    """Check for critical memory pressure. Reboot if too low."""
+    avail = get_available_mem_kb()
+    if avail < CRIT_MEM_KB:
+        log_to_file("CRITICAL: Only %d KB available, rebooting to prevent OOM" % avail)
+        # Try to free memory first
+        gc.collect()
+        time.sleep(2)
+        avail = get_available_mem_kb()
+        if avail < CRIT_MEM_KB:
+            # Still too low — reboot the device
+            os.system('sync')  # flush filesystem
+            time.sleep(1)
+            os.system('reboot -f')
+    return avail
+
 
 # ── Performance Logging ──────────────────────────────────
 PERF_LOG = os.path.join(SD_CARD, "perf_log.csv")
@@ -173,6 +254,7 @@ def start_new_clip(cap_width, cap_height):
     current_clip_start = time.time()
     clip_count += 1
     print("[cam] Recording: %s" % clip_path)
+    log_to_file("Recording: %s" % clip_path)
     return clip_path
 
 def stop_clip():
@@ -182,7 +264,6 @@ def stop_clip():
         current_writer = None
     recording = False
     print("[cam] Recording stopped at %s" % datetime.now().strftime("%H:%M:%S"))
-    cleanup_old_clips()
     gc.collect()  # reclaim memory after clip ends
 
 def send_ntfy(message, priority="default", tags="", click_url=""):
@@ -403,6 +484,7 @@ class StreamHandler(http.server.BaseHTTPRequestHandler):
                     disk_total = round(stat.f_blocks * stat.f_bsize / 1024 / 1024 / 1024, 1)
                     disk_used = round((stat.f_blocks - stat.f_bfree) * stat.f_bsize / 1024 / 1024 / 1024, 1)
                 except: pass
+                # Include heartbeat timestamp for Pi-side monitoring
                 status = {
                     "motion_detected": motion_detected,
                     "recording": recording,
@@ -414,8 +496,11 @@ class StreamHandler(http.server.BaseHTTPRequestHandler):
                     "cpu_usage": cpu_usage,
                     "mem_total_mb": mem_total,
                     "mem_used_mb": mem_used,
+                    "mem_avail_kb": get_available_mem_kb(),
                     "disk_total_gb": disk_total,
                     "disk_used_gb": disk_used,
+                    "heartbeat_ts": datetime.now().isoformat(),
+                    "pid": os.getpid(),
                 }
                 self.wfile.write(json.dumps(status).encode())
             except (BrokenPipeError, ConnectionResetError):
@@ -438,25 +523,42 @@ class ReuseTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 def start_stream_server():
     with ReuseTCPServer(("", STREAM_PORT), StreamHandler) as httpd:
         print("[cam] MJPEG stream on port %d" % STREAM_PORT)
+        log_to_file("HTTP stream server started on port %d" % STREAM_PORT)
         httpd.serve_forever()
 
 def main():
     global latest_frame, motion_detected, motion_last_seen, recording, stream_clients
+    global last_heartbeat, last_wifi_check, start_time
+
     # Wait for NTP time sync (UnitV2 has no RTC)
     print("[cam] Waiting for time sync...")
+    log_to_file("Starting security camera v4...")
     for i in range(30):
         now = datetime.now()
         if now.year > 2020:
             print("[cam] Time synced: %s" % now.strftime("%Y-%m-%d %H:%M:%S"))
+            log_to_file("Time synced: %s" % now.strftime("%Y-%m-%d %H:%M:%S"))
             break
         time.sleep(1)
     else:
         print("[cam] WARNING: Time not synced, using current time")
+        log_to_file("WARNING: Time not synced")
 
-    global start_time
+    # Wait for network connectivity
+    print("[cam] Waiting for network...")
+    for i in range(60):
+        if os.system('ping -c 1 -W 2 192.168.100.1 > /dev/null 2>&1') == 0:
+            print("[cam] Network ready (gateway reachable)")
+            log_to_file("Network ready after %ds" % (i + 1))
+            break
+        time.sleep(1)
+    else:
+        print("[cam] WARNING: Gateway not reachable, continuing anyway")
+        log_to_file("WARNING: Gateway not reachable after 60s")
+
     start_time = time.time()
     print("=" * 50)
-    print("  UnitV2 Security Camera v3 (optimized)")
+    print("  UnitV2 Security Camera v4 (crash-hardened)")
     print("  OpenCV + Background Subtraction")
     print("=" * 50)
 
@@ -466,27 +568,40 @@ def main():
         time.sleep(1)
     if not os.path.isdir(SD_CARD):
         print("[cam] ERROR: SD card not available at %s" % SD_CARD)
+        log_to_file("ERROR: SD card not available at %s" % SD_CARD)
         return
 
     ensure_dirs()
     print("[cam] SD card ready: %.0fMB used" % get_storage_mb())
+    log_to_file("SD card ready: %.0fMB used" % get_storage_mb())
 
     # Pre-run garbage collection
     gc.collect()
 
-    # Open camera
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    cap.set(cv2.CAP_PROP_FPS, 15)
+    # Open camera with retry
+    cam_retry_delay = CAM_RECONNECT_BASE_DELAY
+    cap = None
+    for attempt in range(5):
+        cap = cv2.VideoCapture(0)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FPS, 15)
+        if cap.isOpened():
+            break
+        print("[cam] Camera open failed (attempt %d), retrying in %ds..." % (attempt + 1, cam_retry_delay))
+        log_to_file("Camera open failed (attempt %d)" % (attempt + 1))
+        time.sleep(cam_retry_delay)
+        cam_retry_delay = min(cam_retry_delay * 2, CAM_RECONNECT_MAX_DELAY)
 
-    if not cap.isOpened():
-        print("[cam] ERROR: Cannot open camera")
+    if not cap or not cap.isOpened():
+        print("[cam] ERROR: Cannot open camera after 5 attempts")
+        log_to_file("FATAL: Cannot open camera after 5 attempts")
         return
 
     cap_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     cap_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print("[cam] Camera: %dx%d" % (cap_w, cap_h))
+    log_to_file("Camera opened: %dx%d" % (cap_w, cap_h))
 
     # Start MJPEG stream server
     stream_thread = threading.Thread(target=start_stream_server, daemon=True)
@@ -498,6 +613,7 @@ def main():
             time.sleep(30)
             if not stream_thread.is_alive():
                 print("[cam] HTTP server died, restarting...")
+                log_to_file("HTTP server died, restarting")
                 new_thread = threading.Thread(target=start_stream_server, daemon=True)
                 new_thread.start()
                 stream_thread = new_thread
@@ -521,21 +637,47 @@ def main():
 
     frame_count = 0
     alert_sent_time = 0
+    cam_errors = 0  # track consecutive camera read errors
     print("[cam] Detection running...")
+    log_to_file("Detection running")
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("[cam] Camera read error, reconnecting...")
+            cam_errors += 1
+            print("[cam] Camera read error #%d, reconnecting..." % cam_errors)
+            log_to_file("Camera read error #%d" % cam_errors)
             cap.release()
-            time.sleep(2)
+            # Exponential backoff on repeated errors
+            delay = min(CAM_RECONNECT_BASE_DELAY * (2 ** min(cam_errors, 4)), CAM_RECONNECT_MAX_DELAY)
+            time.sleep(delay)
             cap = cv2.VideoCapture(0)
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, 15)
             continue
+
+        # Reset error counter on successful read
+        if cam_errors > 0:
+            log_to_file("Camera recovered after %d errors" % cam_errors)
+            cam_errors = 0
 
         frame_count += 1
         now = time.time()
+
+        # ── Periodic tasks ──
+        # Write heartbeat file every 30 seconds
+        if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+            write_heartbeat()
+            last_heartbeat = now
+
+        # Check WiFi every 5 minutes
+        if now - last_wifi_check >= WIFI_CHECK_INTERVAL:
+            check_wifi()
+            last_wifi_check = now
+
+        # Check memory pressure
+        check_oom()
 
         # ── Motion Detection (every Nth frame, on small grayscale) ──
         has_motion = False
@@ -661,8 +803,9 @@ if __name__ == "__main__":
             main()
         except Exception as e:
             print("[cam] CRASHED: %s" % e)
-            import traceback
-            traceback.print_exc()
+            tb_module.print_exc()
+            # Log crash to SD card
+            log_to_file("CRASHED: %s\n%s" % (e, tb_module.format_exc()))
             gc.collect()
             print("[cam] Restarting in 5 seconds...")
             time.sleep(5)

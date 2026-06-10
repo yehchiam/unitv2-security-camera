@@ -1,15 +1,15 @@
-# UnitV2 Security Camera
+# UnitV2-M12 Security Camera
 
-M5Stack UnitV2 security camera with motion detection, video recording, push alerts, and web dashboard.
+M5Stack UnitV2-M12 (SKU: U078-M12) security camera with motion detection, video recording, push alerts, and web dashboard.
 
 > 🤖 **Developed with [OpenClaw](https://github.com/openclaw/openclaw)** — an AI agent platform for building, deploying, and managing projects on edge devices.
 
 ## Architecture
 
 ```
-UnitV2 (camera)                    Server (Pi 4 / any Linux)
+UnitV2-M12 (camera)                Server (Pi 4 / any Linux)
 ┌──────────────────┐               ┌──────────────────────────┐
-│ GC2145 Camera    │               │ Dashboard Server :3006   │
+│ GC2053 Camera    │               │ Dashboard Server :3006   │
 │       ↓          │               │       ↕                  │
 │ OpenCV + MOG2   │──── WiFi ────→│ Proxy to UnitV2          │
 │ Motion Detection │  LAN / WiFi   │                          │
@@ -22,7 +22,7 @@ UnitV2 (camera)                    Server (Pi 4 / any Linux)
 
 ## Features
 
-- **Motion detection** via background subtraction (MOG2) — lightweight, 114MB RAM friendly
+- **Motion detection** via background subtraction (MOG2) — lightweight, 128MB RAM friendly
 - **Auto-recording** 60s AVI clips when motion detected, 30s cooldown after last motion
 - **MJPEG live stream** with overlay (🔴 recording / 🟡 motion / 🟢 idle)
 - **ntfy.sh push alerts** with JPEG snapshots on motion detection
