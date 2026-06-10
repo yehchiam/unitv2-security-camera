@@ -2,6 +2,8 @@
 
 M5Stack UnitV2-M12 (SKU: U078-M12) security camera with motion detection, video recording, push alerts, and web dashboard.
 
+![Dashboard Screenshot](dashboard-screenshot.jpg)
+
 > 🤖 **Developed with [OpenClaw](https://github.com/openclaw/openclaw)** — an AI agent platform for building, deploying, and managing projects on edge devices.
 
 ## Architecture
