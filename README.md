@@ -27,7 +27,7 @@ UnitV2-M12 (camera)                Server (Pi 4 / any Linux)
 - **Motion detection** via background subtraction (MOG2) — lightweight, 128MB RAM friendly
 - **Auto-recording** 60s AVI clips when motion detected, 30s cooldown after last motion
 - **MJPEG live stream** with overlay (🔴 recording / 🟡 motion / 🟢 idle)
-- **ntfy.sh push alerts** with JPEG snapshots on motion detection
+- **ntfy.sh push alerts** with 1.5s delayed JPEG snapshots (catches the person, not the trigger frame)
 - **Auto-cleanup** of old clips when storage exceeds threshold
 - **Web dashboard** with live feed, status, clip browser & playback
 - **H.264 transcoding** (Pi 4) for Safari/iOS playback
@@ -159,7 +159,7 @@ WantedBy=multi-user.target
 | `UNITV2_PORT` | `8080` | UnitV2 HTTP port |
 | `UNITV2_SSH_USER` | `root` | UnitV2 SSH username |
 | `UNITV2_SSH_PASS` | *(required)* | UnitV2 SSH password |
-| `NTFY_URL` | `https://ntfy.sh/YOUR_NTFY_TOPIC` | ntfy.sh push notification topic |
+| `NTFY_URL` | `https://ntfy.sh/camera-aac2619e80df` | ntfy.sh push notification topic |
 
 ## Files
 
@@ -181,15 +181,21 @@ In `security_cam.py`:
 | `FPS` | 10 | Recording frame rate |
 | `RESIZE_W/H` | 320×240 | Recording resolution |
 | `DETECT_W/H` | 160×120 | Detection resolution (smaller = faster) |
-| `MIN_CONTOUR_AREA` | 500 | Min pixel area for motion detection |
+| `DETECT_SKIP` | 3 | Process every Nth frame for detection |
+| `MIN_CONTOUR_AREA` | 800 | Min pixel area for motion detection |
+| `MOTION_THRESHOLD` | 30 | Pixel diff threshold (higher = less sensitive) |
+| `JPEG_QUALITY` | 50 | Stream JPEG quality (lower = less CPU) |
 | `MAX_STORAGE_MB` | 110000 | Storage limit before auto-cleanup |
 | `STREAM_PORT` | 8080 | MJPEG stream port |
-| `STREAM_FPS` | 5 | Stream FPS (lower = less bandwidth) |
+| `STREAM_FPS` | 3 | Stream FPS (lower = less CPU/bandwidth) |
+| `SNAPSHOT_DELAY` | 1.5s | Delay before snapshot grab (catches person, not trigger) |
 
 ## Security Notes
 
 - **Always set `CAM_DASH_USER` and `CAM_DASH_PASS`** — default credentials are insecure
-- All endpoints require authentication (stream, clips, delete, status)
+- `/stream` endpoint is public (no auth) — required for `<img>` and `<video>` tags in browser
+- All other endpoints (clips, status, delete) require authentication
+- Video playback uses `fetch()` + Blob URL to pass auth credentials (browsers can't send Basic Auth from `<video>` tags)
 - Passwords are compared using SHA-256 hashes (constant-time comparison)
 - For public access, use HTTPS via Cloudflare Tunnel or a reverse proxy
 - The UnitV2 SSH password is stored in `.env` (not committed to git)
@@ -197,11 +203,15 @@ In `security_cam.py`:
 ## Notes
 
 - UnitV2 SD card must use **MBR partition table** (not GPT) and **FAT32** filesystem
+- FAT32 corruption causes kernel to mount SD read-only — auto-detect and remount rw built in
 - M5Stack stock web UI (port 80) is disabled; security cam replaces it
 - The UnitV2 Python has SSL cert issues — ntfy uses `ssl.CERT_NONE` workaround
 - Recording uses MJPEG codec at 320×240 for low RAM usage (~25KB/frame)
 - Estimated storage: ~1.5MB per 60s clip, ~110,000 clips on 119GB card
 - Pi 4 transcodes AVI → MP4 on-the-fly for Safari/iOS playback
+- CPU temperature monitoring included (SSD202D runs 70–77°C normally)
+- ntfy push alerts have 60s cooldown, 1.5s snapshot delay, and 10MB min RAM check
+- Snapshot thumbnails: 160×120 JPEG, ~3KB — minimal CPU/RAM impact
 
 ## License
 
