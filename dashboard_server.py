@@ -78,7 +78,7 @@ def get_clips_via_ssh():
              '-o', 'StrictHostKeyChecking=no',
              '-o', 'ConnectTimeout=5',
              'root@%s' % UNITV2_HOST,
-             'ls -l /mnt/sdcard/clips/*.avi 2>/dev/null'],
+             'ls -l /mnt/sd/clips/*.avi 2>/dev/null'],
             capture_output=True, text=True, timeout=10
         )
         clips = []
@@ -151,6 +151,25 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # HTML page is always served (login form handles auth client-side)
         if path == '/' or path == '/index.html':
             self.serve_file('index.html', 'text/html')
+            return
+
+        # Stream endpoint: allow unauthenticated access for <img> tag compatibility
+        # The stream is just a live camera feed, not sensitive data.
+        # Alternatively, support ?token=base64creds for authenticated access.
+        if path == '/stream':
+            # Check for token-based auth first
+            token = self.path.split('token=', 1)[-1].split('&')[0] if 'token=' in self.path else None
+            if token:
+                try:
+                    decoded = base64.b64decode(token).decode('utf-8', errors='ignore')
+                    incoming_hash = hashlib.sha256(decoded.encode()).hexdigest()
+                    if incoming_hash != _CRED_HASH:
+                        send_auth_challenge(self)
+                        return
+                except Exception:
+                    send_auth_challenge(self)
+                    return
+            self.proxy_stream('/stream')
             return
 
         # All other endpoints require auth
@@ -284,7 +303,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                  '-o', 'StrictHostKeyChecking=no',
                  '-o', 'ConnectTimeout=10',
                  'root@%s' % UNITV2_HOST,
-                 'cat /mnt/sdcard/clips/%s' % filename],
+                 'cat /mnt/sd/clips/%s' % filename],
                 capture_output=True, timeout=60
             )
             if result.returncode != 0 or not result.stdout:
@@ -352,7 +371,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                  '-o', 'StrictHostKeyChecking=no',
                  '-o', 'ConnectTimeout=5',
                  'root@%s' % UNITV2_HOST,
-                 'rm /mnt/sdcard/clips/%s' % filename],
+                 'rm /mnt/sd/clips/%s' % filename],
                 capture_output=True, timeout=10
             )
             if result.returncode == 0:

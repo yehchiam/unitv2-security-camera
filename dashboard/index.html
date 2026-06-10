@@ -408,7 +408,7 @@
       <div class="live-tag">LIVE</div>
     </div>
     <div class="stream-container">
-      <img id="streamImg" src="/stream" alt="Live camera feed" onerror="handleStreamError()">
+      <img id="streamImg" src="" alt="Live camera feed" onerror="handleStreamError()">
       <div class="stream-overlay">
         <div class="rec" id="recBadge" style="display:none">REC</div>
       </div>
@@ -502,6 +502,7 @@ function doLogin(e) {
     setCreds(creds, remember);
     loginOverlay.style.display = 'none';
     init();
+    initStream();
   }).catch(err => {
     loginErr.textContent = 'Could not connect to server';
   });
@@ -545,6 +546,7 @@ window.fetch = function(url, opts) {
     }
     loginOverlay.style.display = 'none';
     init();
+    initStream();
   }).catch(() => {
     // Keep login form visible
   });
@@ -552,6 +554,25 @@ window.fetch = function(url, opts) {
 
 // ── App ────────────────────────────────────────────────────────────────
 let streamErrorCount = 0;
+
+function initStream() {
+  // Build stream URL with auth token so <img> tag can authenticate
+  const creds = getCreds();
+  if (!creds) return;
+  const streamUrl = '/stream?token=' + encodeURIComponent(creds);
+  document.getElementById('streamImg').src = streamUrl;
+}
+
+function handleStreamError() {
+  streamErrorCount++;
+  if (streamErrorCount < 5) {
+    setTimeout(() => {
+      initStream();
+    }, 3000);
+  } else {
+    document.getElementById('streamImg').alt = 'Camera offline';
+  }
+}
 
 function formatUptime(seconds) {
   if (seconds < 60) return Math.floor(seconds) + 's';
@@ -565,15 +586,6 @@ function formatSize(mb) {
   if (mb < 1) return (mb * 1024).toFixed(0) + ' KB';
   if (mb < 1000) return mb.toFixed(1) + ' MB';
   return (mb / 1000).toFixed(2) + ' GB';
-}
-
-function handleStreamError() {
-  streamErrorCount++;
-  if (streamErrorCount < 3) {
-    setTimeout(() => {
-      document.getElementById('streamImg').src = '/stream?t=' + Date.now();
-    }, 3000);
-  }
 }
 
 async function loadStatus() {
